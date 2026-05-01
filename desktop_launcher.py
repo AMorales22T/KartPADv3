@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import webbrowser
 
-from kardpad.config import APP_NAME
+from kardpad.config import APP_NAME, RESOURCE_DIR
 from kardpad.runtime import KardPadRuntime, RuntimeInfo
 
 try:
@@ -24,6 +24,9 @@ class DesktopLauncher:
         self.root.configure(bg="#0b1220")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.selected_ip = tk.StringVar(master=self.root, value=self.info.primary_ip)
+        self._window_icon = None
+        self._header_logo = None
+        self._apply_window_icon()
 
         self._build_ui(self.info)
         self._refresh_selected_ip()
@@ -41,9 +44,17 @@ class DesktopLauncher:
 
         header = tk.Frame(outer, bg="#0b1220")
         header.pack(fill="x", pady=(0, 18))
-        tk.Label(header, text=APP_NAME, bg="#0b1220", fg="#f8fafc", font=("Segoe UI Semibold", 24)).pack(anchor="w")
+        header_left = tk.Frame(header, bg="#0b1220")
+        header_left.pack(anchor="w")
+        self._header_logo = self._load_logo_image("assets/kartpadv3-icon-256.png", 74)
+        if self._header_logo is not None:
+            tk.Label(header_left, image=self._header_logo, bg="#0b1220").pack(side="left", padx=(0, 14))
+
+        title_block = tk.Frame(header_left, bg="#0b1220")
+        title_block.pack(side="left")
+        tk.Label(title_block, text=APP_NAME, bg="#0b1220", fg="#f8fafc", font=("Segoe UI Semibold", 24)).pack(anchor="w")
         tk.Label(
-            header,
+            title_block,
             text="Servidor listo. Esta ventana sustituye a la terminal y deja todo preparado para el movil.",
             bg="#0b1220",
             fg="#93c5fd",
@@ -189,6 +200,35 @@ class DesktopLauncher:
 
     def _card(self, parent: tk.Widget, title: str) -> tk.LabelFrame:
         return tk.LabelFrame(parent, text=title, bg="#111827", fg="#f8fafc", font=("Segoe UI Semibold", 12))
+
+    def _apply_window_icon(self) -> None:
+        icon_ico = RESOURCE_DIR / "assets" / "kartpadv3.ico"
+        icon_png = RESOURCE_DIR / "assets" / "kartpadv3-icon-256.png"
+        if icon_png.exists():
+            try:
+                self._window_icon = tk.PhotoImage(file=str(icon_png))
+                self.root.iconphoto(True, self._window_icon)
+            except tk.TclError:
+                self._window_icon = None
+        if icon_ico.exists():
+            try:
+                self.root.iconbitmap(default=str(icon_ico))
+            except tk.TclError:
+                pass
+
+    def _load_logo_image(self, relative_path: str, size: int) -> tk.PhotoImage | None:
+        image_path = RESOURCE_DIR / relative_path
+        if not image_path.exists():
+            return None
+        try:
+            image = tk.PhotoImage(file=str(image_path))
+        except tk.TclError:
+            return None
+
+        shrink = max(1, image.width() // size)
+        if shrink > 1:
+            image = image.subsample(shrink, shrink)
+        return image
 
     def _on_close(self) -> None:
         self.runtime.stop()
