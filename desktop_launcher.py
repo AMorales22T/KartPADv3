@@ -39,8 +39,8 @@ class DesktopLauncher:
         self.info = self.runtime.start()
         self.root = tk.Tk()
         self.root.title(APP_NAME)
-        self.root.geometry("1020x740")
-        self.root.minsize(920, 660)
+        self.root.geometry("1020x760")
+        self.root.minsize(920, 680)
         self.root.configure(bg=BG_DARK)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.selected_ip = tk.StringVar(master=self.root, value=self.info.primary_ip)
@@ -202,7 +202,7 @@ class DesktopLauncher:
             ("①", "Abre la cámara del móvil y escanea el QR de la derecha."),
             ("②", "Si el móvil avisa sobre certificado, pulsa \"Continuar\"."),
             ("③", "Elige jugador y usa el móvil como mando de Wii."),
-            ("④", "En Dolphin → Controladores → DSUClient → 127.0.0.1:26760"),
+            ("④", "En Dolphin → Configura el dispositivo como DSUClient."),
         ]
         for num, txt in steps:
             row = tk.Frame(frame, bg=BG_CARD)
@@ -225,6 +225,10 @@ class DesktopLauncher:
         ttk.Button(
             actions, text="📋  Copiar enlace",
             command=self._copy_selected_url, style="Secondary.TButton",
+        ).pack(side="left", padx=(10, 0))
+        ttk.Button(
+            actions, text="❓  Ayuda Dolphin",
+            command=self._show_dolphin_help, style="Secondary.TButton",
         ).pack(side="left", padx=(10, 0))
 
     # ── Networks card ─────────────────────────────────────────────────
@@ -282,6 +286,41 @@ class DesktopLauncher:
         ).pack(padx=20, pady=(0, 18))
 
     # ── Helpers ───────────────────────────────────────────────────────
+
+    def _show_dolphin_help(self) -> None:
+        """Opens a dedicated help window for Dolphin configuration."""
+        help_win = tk.Toplevel(self.root)
+        help_win.title("Guía de Configuración en Dolphin")
+        help_win.geometry("600x520")
+        help_win.configure(bg=BG_DARK)
+        help_win.transient(self.root)
+        help_win.grab_set()
+
+        pad = 24
+        inner = tk.Frame(help_win, bg=BG_DARK, padx=pad, pady=pad)
+        inner.pack(fill="both", expand=True)
+
+        tk.Label(inner, text="Configuración de Mandos", bg=BG_DARK, fg=ACCENT, font=FONT_TITLE).pack(anchor="w", pady=(0, 10))
+        
+        text_bg = BG_CARD
+        content = tk.Frame(inner, bg=text_bg, padx=16, pady=16, highlightbackground=BORDER, highlightthickness=1)
+        content.pack(fill="both", expand=True)
+
+        guide = [
+            ("1. Abre Dolphin", "Ve a la sección de 'Mandos' en la barra superior."),
+            ("2. Elige el Wiimote", "En 'Wiimote 1', selecciona 'Wiimote emulado' y pulsa 'Configurar'."),
+            ("3. Selecciona el Dispositivo", "En el desplegable 'Dispositivo' (arriba a la izquierda), busca:\nDSUClient/0/KartPAD\n(Si no aparece, pulsa el botón 'Actualizar' al lado)."),
+            ("4. Otros Jugadores", "Para el Jugador 2 usa DSUClient/1/, para el Jugador 3 usa DSUClient/2/..."),
+            ("5. ¡IMPORTANTE!", "En la pestaña 'Opciones' (abajo a la derecha), marca la casilla:\n[x] Mando de Wii en horizontal\nEsto es vital para que el giro del móvil funcione en Mario Kart."),
+        ]
+
+        for title, desc in guide:
+            f = tk.Frame(content, bg=text_bg, pady=6)
+            f.pack(fill="x")
+            tk.Label(f, text=title, bg=text_bg, fg=TEXT_PRI, font=("Segoe UI Semibold", 11)).pack(anchor="w")
+            tk.Label(f, text=desc, bg=text_bg, fg=TEXT_SEC, font=FONT_BODY, justify="left", wraplength=500).pack(anchor="w")
+
+        ttk.Button(inner, text="Entendido", command=help_win.destroy, style="Accent.TButton").pack(pady=(20, 0))
 
     def _refresh_selected_ip(self) -> None:
         ip = self.selected_ip.get()
