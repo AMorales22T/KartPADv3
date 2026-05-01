@@ -1127,7 +1127,7 @@ function handleDeviceMotion(ev) {
   let rawAngle = Math.atan2(sx, Math.abs(sy));
   // Limitamos para que ~60 grados (1.047 rad) ya den un giro completo (-1 a 1)
   let rawRoll = clamp(rawAngle / 1.047, -1, 1);
-  if (sx < 0) rawRoll = -Math.abs(rawRoll);
+  // atan2(sx, |sy|) already produces correct sign — no manual override needed
   state.lastTiltRaw = rawRoll;
 
   if (state.tiltEnabled) {
