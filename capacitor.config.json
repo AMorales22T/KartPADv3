@@ -1,0 +1,26 @@
+{
+  "appId": "com.kardpad.app",
+  "appName": "KartPADv3",
+  "webDir": "static",
+  "server": {
+    "allowNavigation": ["*"],
+    "iosScheme": "http",
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#06060e",
+    "preferredContentMode": "mobile",
+    "limitsNavigationsToAppBoundDomains": false,
+    "allowsLinkPreview": false
+  },
+  "plugins": {
+    "ScreenOrientation": {
+      "allowRotate": false
+    }
+  }
+}
