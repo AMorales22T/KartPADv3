@@ -16,6 +16,8 @@ python -m PyInstaller `
   --onefile `
   --windowed `
   --name KartPADv3 `
+  --icon assets/kartpadv3.ico `
+  --add-data "assets;assets" `
   --add-data "static;static" `
   --add-data "LICENSE;." `
   desktop_launcher.py
