@@ -230,6 +230,10 @@ class DesktopLauncher:
             actions, text="❓  Ayuda Dolphin",
             command=self._show_dolphin_help, style="Secondary.TButton",
         ).pack(side="left", padx=(10, 0))
+        ttk.Button(
+            actions, text="📊  Probar Mandos",
+            command=self._show_controller_test, style="Secondary.TButton",
+        ).pack(side="left", padx=(10, 0))
 
     # ── Networks card ─────────────────────────────────────────────────
 
@@ -321,6 +325,109 @@ class DesktopLauncher:
             tk.Label(f, text=desc, bg=text_bg, fg=TEXT_SEC, font=FONT_BODY, justify="left", wraplength=500).pack(anchor="w")
 
         ttk.Button(inner, text="Entendido", command=help_win.destroy, style="Accent.TButton").pack(pady=(20, 0))
+
+    def _show_controller_test(self) -> None:
+        """Opens a window to test connected controllers in real-time."""
+        test_win = tk.Toplevel(self.root)
+        test_win.title("Prueba de Mandos")
+        test_win.geometry("640x520")
+        test_win.minsize(640, 520)
+        test_win.configure(bg=BG_DARK)
+        test_win.transient(self.root)
+        
+        # Keep it always on top so it's a handy widget while configuring Dolphin
+        test_win.attributes("-topmost", True)
+
+        header = tk.Frame(test_win, bg=BG_DARK, pady=16)
+        header.pack(fill="x")
+        tk.Label(header, text="📊 Test de Mandos", bg=BG_DARK, fg=ACCENT, font=FONT_TITLE).pack()
+        tk.Label(header, text="Mueve o pulsa botones en el móvil para verlos aquí en tiempo real.", bg=BG_DARK, fg=TEXT_SEC, font=FONT_SUB).pack()
+
+        grid_frame = tk.Frame(test_win, bg=BG_DARK, padx=20, pady=10)
+        grid_frame.pack(fill="both", expand=True)
+
+        grid_frame.columnconfigure(0, weight=1)
+        grid_frame.columnconfigure(1, weight=1)
+        grid_frame.rowconfigure(0, weight=1)
+        grid_frame.rowconfigure(1, weight=1)
+
+        self.player_widgets = {}
+
+        for player_id in range(1, 5):
+            row, col = (player_id - 1) // 2, (player_id - 1) % 2
+            card = tk.LabelFrame(
+                grid_frame, text=f" Jugador {player_id} ", bg=BG_CARD, fg=TEXT_PRI,
+                font=("Segoe UI Semibold", 11), bd=1, padx=12, pady=12
+            )
+            card.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
+
+            # Status
+            status_lbl = tk.Label(card, text="🔴 Desconectado", bg=BG_CARD, fg=RED, font=FONT_BTN)
+            status_lbl.pack(anchor="w", pady=(0, 6))
+
+            # Steering
+            tk.Label(card, text="Volante (Giro horizontal):", bg=BG_CARD, fg=TEXT_SEC, font=FONT_SMALL).pack(anchor="w")
+            steer_bar = ttk.Progressbar(card, orient="horizontal", length=200, mode="determinate")
+            steer_bar.pack(fill="x", pady=(2, 8))
+
+            # Shake
+            shake_lbl = tk.Label(card, text="Agitar: Reposo", bg=BG_CARD, fg=TEXT_DIM, font=FONT_BODY)
+            shake_lbl.pack(anchor="w", pady=(0, 6))
+
+            # Buttons
+            btn_lbl = tk.Label(card, text="Botones: Ninguno", bg=BG_CARD, fg=TEXT_PRI, font=FONT_BODY, wraplength=220)
+            btn_lbl.pack(anchor="w")
+
+            self.player_widgets[player_id] = {
+                "status": status_lbl,
+                "steer": steer_bar,
+                "shake": shake_lbl,
+                "btns": btn_lbl,
+                "card": card
+            }
+
+        def _update():
+            if not test_win.winfo_exists():
+                return
+            
+            snapshots = self.runtime.hub.snapshots()
+            for snapshot in snapshots:
+                pid = snapshot.player_id
+                widgets = self.player_widgets.get(pid)
+                if not widgets:
+                    continue
+
+                if snapshot.connected:
+                    widgets["status"].config(text="🟢 Conectado", fg=GREEN)
+                    widgets["card"].config(bg=BG_CARD_HL)
+                    for k, w in widgets.items():
+                        if isinstance(w, tk.Label): w.config(bg=BG_CARD_HL)
+                    
+                    # Steering: accel[0] ranges roughly from -1.0 to +1.0. Map to 0-100.
+                    val = (snapshot.accel[0] + 1.0) / 2.0 * 100
+                    widgets["steer"]["value"] = max(0, min(100, val))
+
+                    # Shake: gyro[2] (roll) spikes over 20.0 when shaking
+                    if abs(snapshot.gyro[2]) > 15.0:
+                        widgets["shake"].config(text="🔥 ¡AGITANDO!", fg="#f59e0b")
+                    else:
+                        widgets["shake"].config(text="Agitar: Reposo", fg=TEXT_DIM)
+
+                    # Buttons
+                    btns = ", ".join(sorted(snapshot.buttons)) if snapshot.buttons else "Ninguno"
+                    widgets["btns"].config(text=f"Botones: {btns}")
+                else:
+                    widgets["status"].config(text="🔴 Desconectado", fg=RED)
+                    widgets["card"].config(bg=BG_CARD)
+                    for k, w in widgets.items():
+                        if isinstance(w, tk.Label): w.config(bg=BG_CARD)
+                    widgets["steer"]["value"] = 50
+                    widgets["shake"].config(text="Agitar: Reposo", fg=TEXT_DIM)
+                    widgets["btns"].config(text="Botones: Ninguno")
+
+            test_win.after(40, _update)
+
+        _update()
 
     def _refresh_selected_ip(self) -> None:
         ip = self.selected_ip.get()
