@@ -1,4 +1,10 @@
-# KartPADv3
+```text
+ _  __          _   _____  ___  ___        ____
+| |/ /__ _ _ __| |_|  __ \/ _ \|  _ \__   |___ \
+| ' // _` | '__| __| |__) / /_\ \ | | \ \ / / __) |
+| . \ (_| | |  | |_|  ___/|  _  | |_| |\ V /|__ <
+|_|\_\__,_|_|   \__|_|    |_| |_|____/  \_/ |___/
+```
 
 KartPADv3 es una herramienta que permite utilizar un telefono movil como mando de Wii para el emulador Dolphin, trasladando el movimiento real del giroscopio y botones tactiles directamente al juego a traves de red local.
 
