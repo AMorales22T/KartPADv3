@@ -57,6 +57,11 @@ class KardPadRuntime:
         self._info: RuntimeInfo | None = None
 
     @property
+    def hub(self) -> ControllerHub:
+        """Public accessor for the ControllerHub (used by the UI test panel)."""
+        return self._hub
+
+    @property
     def info(self) -> RuntimeInfo:
         if self._info is None:
             msg = f"{APP_NAME} runtime is not started."

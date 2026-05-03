@@ -131,43 +131,73 @@ def backup(path: Path) -> Path | None:
     return backup_path
 
 
-def main() -> None:
-    if not DOLPHIN_CONFIG_DIR.exists():
-        print(f"[ERROR] No se encontro {DOLPHIN_CONFIG_DIR}")
-        print("        Esta Dolphin instalado?")
-        sys.exit(1)
+def apply_dolphin_config() -> dict:
+    """
+    Apply the KardPad Dolphin configuration programmatically.
 
+    Returns a dict with keys:
+        ok      (bool)       – True if files were written successfully
+        message (str)        – Human-readable summary (for UI display)
+        backups (list[str])  – Names of backup files created
+        error   (str | None) – Error description if ok=False
+    """
+    if not DOLPHIN_CONFIG_DIR.exists():
+        return {
+            "ok": False,
+            "message": "Dolphin no encontrado.",
+            "backups": [],
+            "error": f"No existe: {DOLPHIN_CONFIG_DIR}",
+        }
+
+    backups = []
+    try:
+        bak1 = backup(WIIMOTE_INI)
+        bak2 = backup(DSU_INI)
+        if bak1:
+            backups.append(bak1.name)
+        if bak2:
+            backups.append(bak2.name)
+
+        WIIMOTE_INI.write_text(WIIMOTE_CONTENT, encoding="utf-8")
+        DSU_INI.write_text(DSU_CONTENT, encoding="utf-8")
+
+        return {
+            "ok": True,
+            "message": (
+                "Config aplicada:\n"
+                "  Wiimote 1-4 → DSUClient/0-3/\n"
+                "  Sideways Wiimote = True\n"
+                "  IMU Accel/Gyro → DSU\n"
+                "  DSU Client → 127.0.0.1:26760\n"
+                "Cierra y vuelve a abrir Dolphin."
+            ),
+            "backups": backups,
+            "error": None,
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "message": "Error al escribir los archivos.",
+            "backups": backups,
+            "error": str(exc),
+        }
+
+
+def main() -> None:
+    result = apply_dolphin_config()
     print("=" * 60)
     print("  KardPad — Generador de config Dolphin")
     print("=" * 60)
 
-    bak1 = backup(WIIMOTE_INI)
-    bak2 = backup(DSU_INI)
-    if bak1:
-        print(f"[BACKUP] {bak1.name}")
-    if bak2:
-        print(f"[BACKUP] {bak2.name}")
+    if not result["ok"]:
+        print(f"[ERROR] {result['error']}")
+        sys.exit(1)
 
-    WIIMOTE_INI.write_text(WIIMOTE_CONTENT, encoding="utf-8")
-    print(f"[OK] Escrito: {WIIMOTE_INI}")
-
-    DSU_INI.write_text(DSU_CONTENT, encoding="utf-8")
-    print(f"[OK] Escrito: {DSU_INI}")
+    for bak in result["backups"]:
+        print(f"[BACKUP] {bak}")
 
     print()
-    print("Cambios aplicados:")
-    print("  [OK] Extension = None  (sin Nunchuk -> tilt steering activo)")
-    print("  [OK] Sideways Wiimote = True")
-    print("  [OK] Buttons/A = Square   <- LOOKBACK  (mirar atras)")
-    print("  [OK] Buttons/B = R1       <- DRIFT     (derrapar / hop)")
-    print("  [OK] Buttons/2 = R2       <- ACCELERATE (acelerar / confirmar)")
-    print("  [OK] Buttons/1 = L2       <- BRAKE     (frenar / cancelar)")
-    print("  [OK] D-Pad = Pad N/S/W/E  <- ITEM + navegacion de menus")
-    print("  [OK] Shake/X/Y/Z = Triangle <- TRICK  (pirueta al agitar)")
-    print("  [OK] IMU Accel/Gyro -> DSU  (volante funciona)")
-    print("  [OK] DSU Client -> 127.0.0.1:26760")
-    print()
-    print("IMPORTANTE: Cierra y vuelve a abrir Dolphin.")
+    print(result["message"])
     print()
     print("--- Mapeo completo KardPad -> Wiimote -> MKWii -------------")
     print("  Boton A UI  (ACCELERATE) -> R2       -> Wiimote 2 -> Acelerar")

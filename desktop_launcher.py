@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 import webbrowser
@@ -11,6 +13,24 @@ try:
     import qrcode
 except ImportError:  # pragma: no cover
     qrcode = None
+
+# ── Detección de ventana Dolphin (solo Windows, requiere pywin32) ──────
+try:
+    import win32gui
+    import win32process
+    import psutil
+    _WIN32_AVAILABLE = True
+except ImportError:
+    _WIN32_AVAILABLE = False
+
+# Importar función de configuración Dolphin
+try:
+    from generate_dolphin_config import apply_dolphin_config
+    _DOLPHIN_CONFIG_AVAILABLE = True
+except ImportError:
+    _DOLPHIN_CONFIG_AVAILABLE = False
+    def apply_dolphin_config() -> dict:  # type: ignore[misc]
+        return {"ok": False, "message": "", "backups": [], "error": "generate_dolphin_config no encontrado"}
 
 # ── Colour palette ────────────────────────────────────────────────────
 BG_DARK    = "#080c18"
@@ -39,8 +59,8 @@ class DesktopLauncher:
         self.info = self.runtime.start()
         self.root = tk.Tk()
         self.root.title(APP_NAME)
-        self.root.geometry("1020x760")
-        self.root.minsize(920, 680)
+        self.root.geometry("1020x780")
+        self.root.minsize(920, 700)
         self.root.configure(bg=BG_DARK)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.selected_ip = tk.StringVar(master=self.root, value=self.info.primary_ip)
@@ -48,8 +68,14 @@ class DesktopLauncher:
         self._header_logo = None
         self._apply_window_icon()
 
+        # Dolphin watcher state
+        self._dolphin_config_applied = False  # once-per-session flag
+        self._dolphin_status_label: tk.Label | None = None
+        self._dolphin_watcher_stop = threading.Event()
+
         self._build_ui(self.info)
         self._refresh_selected_ip()
+        self._start_dolphin_watcher()
 
     def run(self) -> None:
         self.root.mainloop()
@@ -217,7 +243,7 @@ class DesktopLauncher:
             ).pack(side="left", fill="x", expand=True)
 
         actions = tk.Frame(frame, bg=BG_CARD)
-        actions.pack(fill="x", padx=16, pady=(12, 16))
+        actions.pack(fill="x", padx=16, pady=(8, 4))
         ttk.Button(
             actions, text="🌐  Abrir vista local",
             command=self._open_local_preview, style="Accent.TButton",
@@ -234,6 +260,23 @@ class DesktopLauncher:
             actions, text="📊  Probar Mandos",
             command=self._show_controller_test, style="Secondary.TButton",
         ).pack(side="left", padx=(10, 0))
+
+        # ── Dolphin config row ─────────────────────────────────────
+        dolphin_row = tk.Frame(frame, bg=BG_CARD)
+        dolphin_row.pack(fill="x", padx=16, pady=(4, 14))
+
+        ttk.Button(
+            dolphin_row, text="🐬  Aplicar Config Dolphin",
+            command=self._apply_dolphin_config_manual, style="Secondary.TButton",
+        ).pack(side="left")
+
+        self._dolphin_status_label = tk.Label(
+            dolphin_row,
+            text=self._dolphin_status_text(),
+            bg=BG_CARD, fg=TEXT_DIM, font=FONT_SMALL,
+            anchor="w",
+        )
+        self._dolphin_status_label.pack(side="left", padx=(14, 0))
 
     # ── Networks card ─────────────────────────────────────────────────
 
@@ -325,6 +368,88 @@ class DesktopLauncher:
             tk.Label(f, text=desc, bg=text_bg, fg=TEXT_SEC, font=FONT_BODY, justify="left", wraplength=500).pack(anchor="w")
 
         ttk.Button(inner, text="Entendido", command=help_win.destroy, style="Accent.TButton").pack(pady=(20, 0))
+
+    # ── Dolphin auto-config ───────────────────────────────────────────
+
+    def _dolphin_status_text(self) -> str:
+        if not _DOLPHIN_CONFIG_AVAILABLE:
+            return "generate_dolphin_config.py no encontrado"
+        if not _WIN32_AVAILABLE:
+            return "🐬 Instala pywin32+psutil para auto-detección"
+        if self._dolphin_config_applied:
+            return "🐬 Config aplicada ✅"
+        return "🐬 Esperando Dolphin…"
+
+    def _update_dolphin_status(self, text: str, color: str = TEXT_DIM) -> None:
+        """Thread-safe UI update for the Dolphin status label."""
+        if self._dolphin_status_label and self._dolphin_status_label.winfo_exists():
+            self._dolphin_status_label.config(text=text, fg=color)
+
+    def _apply_dolphin_config_manual(self) -> None:
+        """Called by the manual 'Aplicar Config Dolphin' button."""
+        if not _DOLPHIN_CONFIG_AVAILABLE:
+            messagebox.showerror(APP_NAME, "generate_dolphin_config.py no encontrado.")
+            return
+        result = apply_dolphin_config()
+        if result["ok"]:
+            self._dolphin_config_applied = True
+            self._update_dolphin_status("🐬 Config aplicada ✅", GREEN)
+            messagebox.showinfo(
+                APP_NAME,
+                "Configuración Dolphin aplicada.\n\n"
+                + result["message"]
+                + "\n\nCierra y vuelve a abrir Dolphin.",
+            )
+        else:
+            messagebox.showerror(
+                APP_NAME,
+                f"No se pudo aplicar la configuración:\n{result['error']}",
+            )
+
+    def _start_dolphin_watcher(self) -> None:
+        """Start a background thread that watches for the Dolphin window."""
+        if not _WIN32_AVAILABLE or not _DOLPHIN_CONFIG_AVAILABLE:
+            return
+        t = threading.Thread(target=self._dolphin_watcher_loop, daemon=True)
+        t.start()
+
+    def _dolphin_watcher_loop(self) -> None:
+        """
+        Polls the active foreground window every 1.5 s.
+        When Dolphin.exe gains focus for the first time this session,
+        automatically applies the DSU config.
+        """
+        while not self._dolphin_watcher_stop.is_set():
+            try:
+                if not self._dolphin_config_applied:
+                    hwnd = win32gui.GetForegroundWindow()
+                    if hwnd:
+                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                        try:
+                            proc = psutil.Process(pid)
+                            if proc.name().lower() in ("dolphin.exe", "dolphin-emu.exe"):
+                                self._on_dolphin_detected()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+            except Exception:  # noqa: BLE001
+                pass  # pywin32 can raise on certain locked windows
+            self._dolphin_watcher_stop.wait(1.5)
+
+    def _on_dolphin_detected(self) -> None:
+        """Called from the watcher thread when Dolphin is the active window."""
+        result = apply_dolphin_config()
+        self._dolphin_config_applied = True  # mark even on failure to avoid spam
+        if result["ok"]:
+            # Schedule UI update on the main thread
+            self.root.after(
+                0,
+                lambda: self._update_dolphin_status("🐬 Config aplicada auto ✅", GREEN),
+            )
+        else:
+            self.root.after(
+                0,
+                lambda: self._update_dolphin_status(f"🐬 Error: {result['error']}", RED),
+            )
 
     def _show_controller_test(self) -> None:
         """Opens a window to test connected controllers in real-time."""
@@ -529,6 +654,7 @@ class DesktopLauncher:
         return image
 
     def _on_close(self) -> None:
+        self._dolphin_watcher_stop.set()
         self.runtime.stop()
         self.root.destroy()
 

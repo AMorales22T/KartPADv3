@@ -3,3 +3,6 @@ cryptography>=38.0
 qrcode>=7.4
 # Opcional — para mostrar QR en la terminal:
 # qrcode[pil]>=7.4
+# Solo Windows — detección automática de la ventana Dolphin:
+pywin32>=306; sys_platform == "win32"
+psutil>=5.9; sys_platform == "win32"
