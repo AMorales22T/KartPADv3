@@ -1180,14 +1180,27 @@ function handleDeviceMotion(ev) {
   }
 
   // ── Detección de shake ────────────────────────────────────────
-  const ax = acc.x ?? 0, ay = acc.y ?? 0, az = acc.z ?? 0;
+  // Usamos aceleración lineal (sin gravedad) si está disponible.
+  // Si usamos aceleración con gravedad, el simple hecho de rotar el móvil
+  // como volante cambia la distribución de los 9.8m/s² entre los ejes X/Y,
+  // generando un falso "tirón" masivo (jerk > 13) que dispara trucos por error.
+  const lin = ev.acceleration || {};
+  const hasLinear = (lin.x != null);
+  const source = hasLinear ? lin : acc;
+  
+  const ax = source.x ?? 0, ay = source.y ?? 0, az = source.z ?? 0;
   const dx = ax - state.accelLast.x;
   const dy = ay - state.accelLast.y;
   const dz = az - state.accelLast.z;
   const jerk = Math.sqrt(dx*dx + dy*dy + dz*dz);
   state.accelLast = { x: ax, y: ay, z: az };
 
-  if (jerk > SHAKE_THRESHOLD) {
+  // Si no hay aceleración lineal y dependemos de la gravedad, necesitamos 
+  // un umbral mucho más alto para no disparar al girar (ej: 15).
+  // Si tenemos lineal pura, 6.5 es perfecto.
+  const effectiveThreshold = hasLinear ? SHAKE_THRESHOLD : 15.0;
+
+  if (jerk > effectiveThreshold) {
     const now = Date.now();
     if (now - state.lastShakeTs > SHAKE_DEBOUNCE_MS) {
       state.lastShakeTs = now;
