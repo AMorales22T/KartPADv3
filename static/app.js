@@ -386,7 +386,7 @@ function injectIpScreen(prefillIp = null) {
     }
     lsSet('kardpad_ip', ip);
     const _isHttps = !isCapacitor() && window.location.protocol === 'https:';
-    state.wsUrl = _isHttps ? `wss://${ip}:8001` : `ws://${ip}:8000`;
+    state.wsUrl = _isHttps ? `wss://${ip}:3443` : `ws://${ip}:8000`;
     err.textContent = 'Conectando…';
     err.style.color = '#06b6d4';
     btn.disabled = true; btn.style.opacity = '0.6';
@@ -409,7 +409,7 @@ function injectIpScreen(prefillIp = null) {
       err.style.color = '#f59e0b';
       err.innerHTML =
         `⚠️ Safari bloquea el certificado. ` +
-        `<a href="https://${ip}:8001" target="_blank" ` +
+        `<a href="https://${ip}:3443" target="_blank" ` +
         `style="color:#06b6d4;text-decoration:underline;">Abre este enlace</a>, ` +
         `acepta el aviso y vuelve aquí para conectar.`;
     };
@@ -1494,7 +1494,7 @@ function handleQrDetected(rawData) {
     // En APK (Capacitor), la WebView usa https://localhost internamente.
     // Siempre conectar por ws:// al servidor KartPAD (no wss://).
     const _isHttps = !isCapacitor() && window.location.protocol === 'https:';
-    state.wsUrl = _isHttps ? `wss://${ip}:8001` : `ws://${ip}:8000`;
+    state.wsUrl = _isHttps ? `wss://${ip}:3443` : `ws://${ip}:8000`;
     updateServerAddress();
     closeQrScanner(); closeSettings();
     connectAs(getInitialPlayer()||state.selectedPlayer||1);

@@ -14,9 +14,10 @@ import websockets
 from .config import HTTP_PORT, STATIC_DIR, WS_PORT
 from .controller import ControllerHub
 
-# Puertos HTTPS/WSS (contexto seguro → giroscopio Android habilitado)
+# Puerto único HTTPS+WSS — la web y el WebSocket comparten el mismo puerto
+# para que iOS solo necesite aceptar el certificado UNA sola vez.
 HTTPS_PORT = 3443
-WSS_PORT   = 8001
+WSS_PORT   = 3443   # mismo que HTTPS_PORT; mantenido por compatibilidad
 
 # ── Debug: motion logging ────────────────────────────────────────
 _motion_debug_ts: float = 0.0

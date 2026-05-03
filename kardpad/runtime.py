@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import http
 import http.server
+import mimetypes
 import ssl
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import websockets
+import websockets.asyncio.server
 
-from .config import APP_NAME, HTTP_PORT, WS_PORT
+from .config import APP_NAME, HTTP_PORT, STATIC_DIR, WS_PORT
 from .controller import ControllerHub
 from .dsu import DSUServer
 from .ssl_cert import get_ssl_context
@@ -73,8 +77,8 @@ class KardPadRuntime:
             return self.info
 
         local_ips = get_local_ips()
-        server_ssl, ws_ssl = get_ssl_context(local_ips[0])
-        https_enabled = server_ssl is not None and ws_ssl is not None
+        server_ssl, _ws_ssl = get_ssl_context(local_ips[0])
+        https_enabled = server_ssl is not None
         self._info = RuntimeInfo(
             local_ips=local_ips,
             dsu_port=self._dsu_server.port,
@@ -82,18 +86,15 @@ class KardPadRuntime:
         )
 
         try:
+            # HTTP plano en puerto 3000 (APK Capacitor / fallback sin TLS)
             self._http_server = self._build_http_server(HTTP_PORT)
             self._http_thread = self._start_http_thread(self._http_server, "HTTP", HTTP_PORT)
-
-            if https_enabled and server_ssl is not None:
-                self._https_server = self._build_http_server(HTTPS_PORT, ssl_ctx=server_ssl)
-                self._https_thread = self._start_http_thread(self._https_server, "HTTPS", HTTPS_PORT)
 
             self._dsu_server.start()
             self._start_loop_thread()
             assert self._loop is not None
             asyncio.run_coroutine_threadsafe(
-                self._start_websocket_servers(ws_ssl if https_enabled else None),
+                self._start_websocket_servers(server_ssl if https_enabled else None),
                 self._loop,
             ).result(timeout=10)
             self._running = True
@@ -126,16 +127,24 @@ class KardPadRuntime:
         self._running = False
 
     async def _start_websocket_servers(self, ssl_ctx: ssl.SSLContext | None) -> None:
+        # WS plano en 8000 — para la APK Android (cleartext)
         self._ws_server = await websockets.serve(self._gateway.handle_connection, "0.0.0.0", WS_PORT)
         print(f"[WS] Listening on ws://0.0.0.0:{WS_PORT}")
+
         if ssl_ctx is not None:
+            # Puerto unificado HTTPS+WSS en 3443:
+            # Las peticiones HTTP GET sirven los archivos estáticos;
+            # las conexiones WebSocket (Upgrade) las maneja el gateway.
+            # El usuario solo acepta UN certificado en Safari.
+            handler = _make_unified_handler(self._gateway, STATIC_DIR)
             self._wss_server = await websockets.serve(
                 self._gateway.handle_connection,
                 "0.0.0.0",
-                WSS_PORT,
+                HTTPS_PORT,
                 ssl=ssl_ctx,
+                process_request=handler,
             )
-            print(f"[WSS] Listening on wss://0.0.0.0:{WSS_PORT}")
+            print(f"[HTTPS+WSS] Unified server on https://0.0.0.0:{HTTPS_PORT}")
 
     async def _stop_websocket_servers(self) -> None:
         if self._wss_server is not None:
@@ -197,3 +206,68 @@ class KardPadRuntime:
             pass
         if thread is not None:
             thread.join(timeout=5)
+
+
+def _make_unified_handler(gateway: MobileGateway, static_dir: Path) -> Any:
+    """
+    Crea un handler para `websockets.serve(process_request=...)`.
+    Permite servir HTTP plano (archivos estáticos) y WebSocket en el mismo puerto.
+    """
+    def process_request(
+        connection: Any,
+        request: Any,
+    ) -> Any | None:
+        # 1. Si es petición de upgrade a WebSocket, devolver None para que websockets asuma el control.
+        connection_header = request.headers.get("Connection", "").lower()
+        upgrade_header = request.headers.get("Upgrade", "").lower()
+        if "upgrade" in connection_header and upgrade_header == "websocket":
+            return None
+
+        # 2. Si es GET normal, servir archivos de STATIC_DIR
+        if request.method != "GET":
+            return _http_response(405, "Method Not Allowed", b"")
+
+        # Normalizar la ruta
+        path = request.path.split("?")[0].lstrip("/")
+        if not path:
+            path = "index.html"
+
+        file_path = static_dir / path
+
+        try:
+            # Prevenir path traversal
+            file_path = file_path.resolve(strict=False)
+            if not str(file_path).startswith(str(static_dir.resolve())):
+                return _http_response(403, "Forbidden", b"Forbidden")
+
+            if not file_path.is_file():
+                return _http_response(404, "Not Found", b"404 Not Found")
+
+            body = file_path.read_bytes()
+            content_type, _ = mimetypes.guess_type(str(file_path))
+            
+            headers = [
+                ("Content-Type", content_type or "application/octet-stream"),
+                ("Content-Length", str(len(body))),
+                ("Cache-Control", "no-cache, no-store, must-revalidate"),
+                ("Pragma", "no-cache"),
+                ("Expires", "0"),
+                ("Permissions-Policy", "accelerometer=*, gyroscope=*"),
+                ("Connection", "close"),
+            ]
+            return (http.HTTPStatus.OK, headers, body)
+            
+        except Exception as e:
+            return _http_response(500, "Internal Server Error", str(e).encode("utf-8"))
+
+    return process_request
+
+
+def _http_response(status_code: int, reason: str, body: bytes) -> tuple[http.HTTPStatus, list[tuple[str, str]], bytes]:
+    status = http.HTTPStatus(status_code)
+    headers = [
+        ("Content-Type", "text/plain"),
+        ("Content-Length", str(len(body))),
+        ("Connection", "close"),
+    ]
+    return (status, headers, body)
