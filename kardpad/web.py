@@ -41,27 +41,43 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def get_local_ips() -> list[str]:
+    primary_ip = None
+    try:
+        # El socket UDP a internet revela la IP real enrutada (Wi-Fi/Ethernet)
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("8.8.8.8", 80))
+        primary_ip = probe.getsockname()[0]
+        probe.close()
+    except OSError:
+        pass
+
     ips = set()
+    if primary_ip:
+        ips.add(primary_ip)
+
     try:
         import psutil
         for interface, snics in psutil.net_if_addrs().items():
+            # Ignorar interfaces conocidas de máquinas virtuales (Hyper-V, WSL, VirtualBox)
+            if any(name in interface.lower() for name in ["vswitch", "wsl", "virtual", "hyper", "vmware"]):
+                continue
             for snic in snics:
                 if snic.family == socket.AF_INET:
                     ips.add(snic.address)
     except Exception:
         pass
-    
-    try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        probe.connect(("8.8.8.8", 80))
-        ips.add(probe.getsockname()[0])
-        probe.close()
-    except OSError:
-        ips.add("127.0.0.1")
         
-    # Remove link-local and loopback
+    # Eliminar link-local y loopback
     valid_ips = [ip for ip in ips if not ip.startswith("127.") and not ip.startswith("169.254.")]
-    return sorted(valid_ips) if valid_ips else ["127.0.0.1"]
+    
+    # Asegurar que el primary_ip (el enrutado) siempre esté primero
+    if primary_ip in valid_ips:
+        valid_ips.remove(primary_ip)
+        valid_ips.insert(0, primary_ip)
+    else:
+        valid_ips = sorted(valid_ips)
+        
+    return valid_ips if valid_ips else ["127.0.0.1"]
 
 
 def print_qr(url: str) -> None:

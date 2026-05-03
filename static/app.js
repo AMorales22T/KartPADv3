@@ -327,8 +327,8 @@ function injectIpScreen(prefillIp = null) {
         <div style="font-size:12px;color:#94a3b8;line-height:1.5;text-align:left;
                     background:rgba(255,255,255,.03);border-radius:12px;padding:12px 14px;">
           <div style="color:#06b6d4;font-weight:600;margin-bottom:6px;">📋 Cómo conectar:</div>
-          <div>1. En el PC ejecuta <code style="color:#4ade80;">python server.py</code></div>
-          <div>2. Escribe abajo la IP que muestra la terminal</div>
+          <div>1. Abre la aplicación de <strong style="color:#4ade80;">KartPAD en tu PC</strong></div>
+          <div>2. Escribe abajo la IP que muestra la ventana</div>
           <div style="color:#7c8ba1;font-size:11px;margin-top:4px;">Ejemplo: <code style="color:#06b6d4;">192.168.X.X</code> — PC y móvil en la misma Wi-Fi</div>
         </div>
       </div>
@@ -420,7 +420,7 @@ function injectIpScreen(prefillIp = null) {
       else {
         btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'CONECTAR';
         err.style.color = '#e74c3c';
-        err.textContent = 'No se pudo conectar. ¿server.py corriendo? ¿Misma Wi-Fi?';
+        err.textContent = 'No se pudo conectar. ¿Aplicación del PC abierta? ¿Misma Wi-Fi?';
       }
     };
     const timer = setTimeout(() => {
