@@ -324,11 +324,17 @@ function injectIpScreen(prefillIp = null) {
         </div>
       </div>
 
-      <input id="ipInput" type="text" inputmode="decimal" placeholder="Ej: 192.168.0.10" value="${saved}"
-        style="padding:14px 16px;border-radius:12px;border:1px solid rgba(6,182,212,.35);
-               background:rgba(6,182,212,.07);color:#d7fbff;font-size:18px;
-               font-family:'Share Tech Mono',monospace;text-align:center;
-               outline:none;width:100%;-webkit-appearance:none;touch-action:manipulation;"/>
+      <div style="position:relative;">
+        <input id="ipInput" type="text" inputmode="decimal" placeholder="Ej: 192.168.0.10" value="${saved}"
+          style="padding:14px 16px;border-radius:12px;border:1px solid rgba(6,182,212,.35);
+                 background:rgba(6,182,212,.07);color:#d7fbff;font-size:18px;
+                 font-family:'Share Tech Mono',monospace;text-align:center;
+                 outline:none;width:100%;box-sizing:border-box;-webkit-appearance:none;touch-action:manipulation;"/>
+        ${saved ? `<button id="ipClearBtn" type="button" title="Borrar IP guardada"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                 background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;
+                 padding:4px 6px;line-height:1;touch-action:manipulation;">✕</button>` : ''}
+      </div>
 
       <button id="ipConnectBtn" type="button"
         style="padding:15px;border-radius:999px;border:none;cursor:pointer;touch-action:manipulation;
@@ -343,6 +349,7 @@ function injectIpScreen(prefillIp = null) {
 
       <div id="ipError" style="font-size:12px;color:#e74c3c;min-height:18px;line-height:1.4;"></div>
     </div>`;
+
   document.body.appendChild(scr);
 
   const inp = document.getElementById('ipInput');
@@ -400,6 +407,19 @@ function injectIpScreen(prefillIp = null) {
     probe.addEventListener('error', () => finish(false));
   };
 
+  // Botón ✕ para borrar la IP guardada (solo aparece si había IP previa)
+  const clearBtn = document.getElementById('ipClearBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      lsSet('kardpad_ip', '');
+      inp.value = '';
+      inp.focus();
+      clearBtn.remove();
+      err.textContent = '';
+      err.style.color = '#e74c3c';
+    });
+  }
+
   qrb.addEventListener('click', () => {
     if (_ipAutoTimer) { clearTimeout(_ipAutoTimer); _ipAutoTimer = null; }
     scr.style.display = 'none'; openQrScanner();
@@ -419,28 +439,15 @@ function injectIpScreen(prefillIp = null) {
     }
   });
 
-  // ── Auto-connect si hay IP guardada ─────────────────────────────
-  // Conecta en 3s automáticamente. El usuario puede tocar el campo
-  // de IP o el botón para cancelar e introducir una IP nueva.
+  // IP pre-rellenada pero sin auto-connect:
+  // El usuario debe pulsar CONECTAR manualmente para evitar
+  // intentos de conexión fallidos al cambiar de red o de ubicación.
   if (hasIp) {
-    let countdown = 3;
     err.style.color = '#4ade80';
-    err.textContent = `Conectando en ${countdown}s… Toca la IP para cambiar`;
-    btn.textContent = `CONECTAR (${countdown}s)`;
-    const tick = () => {
-      countdown--;
-      if (countdown <= 0) {
-        _ipAutoTimer = null;
-        attempt();
-        return;
-      }
-      err.textContent = `Conectando en ${countdown}s… Toca la IP para cambiar`;
-      btn.textContent = `CONECTAR (${countdown}s)`;
-      _ipAutoTimer = setTimeout(tick, 1000);
-    };
-    _ipAutoTimer = setTimeout(tick, 1000);
+    err.textContent = 'IP anterior recordada. Pulsa CONECTAR o escribe una nueva.';
   }
 }
+
 
 /* ═══════════════════════════════════════════════════════════════════════
    MÓDULO: PWA INSTALL BANNER (iOS Safari)
