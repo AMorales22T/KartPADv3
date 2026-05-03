@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Permite tráfico HTTP (WebSocket ws://) a IPs de red local (192.168.x.x, 10.x.x.x, etc.)
+  necesario para que la APK se conecte al servidor KartPAD en la misma Wi-Fi.
+  El tráfico hacia internet sigue siendo HTTPS únicamente.
+-->
+<network-security-config>
+    <!-- Localhost — Capacitor WebView interna -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+
+    <!-- Red local 192.168.x.x -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">192.168.0.0</domain>
+    </domain-config>
+
+    <!-- Red local 10.x.x.x -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.0.0</domain>
+    </domain-config>
+
+    <!-- Red local 172.16.x.x – 172.31.x.x -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">172.16.0.0</domain>
+    </domain-config>
+
+    <!-- Resto del tráfico: solo HTTPS -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

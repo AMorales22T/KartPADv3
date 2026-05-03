@@ -212,22 +212,31 @@ document.addEventListener('pointerdown', () => HapticEngine.unlock(), { once: tr
 
 /* ─── Helpers de entorno ─────────────────────────────────────────── */
 function isCapacitor() {
-  return (
-    window.Capacitor !== undefined ||
-    window.location.protocol === 'capacitor:' ||
-    (window.location.protocol === 'http:' && window.location.hostname === 'localhost')
-  );
+  // window.Capacitor es el indicador más fiable; está disponible en
+  // cuanto el bridge de Capacitor se inicializa (antes de DOMContentLoaded).
+  if (window.Capacitor !== undefined) return true;
+  // Protocol 'capacitor:' (iOS con @capacitor/ios < 5) o
+  // protocol 'https:' con hostname 'localhost' (Android con androidScheme='https')
+  const proto = window.location.protocol;
+  const host  = window.location.hostname;
+  if (proto === 'capacitor:') return true;
+  if (host === 'localhost' && (proto === 'http:' || proto === 'https:')) return true;
+  return false;
 }
 
 function buildWsUrl(hostOverride) {
-  const params   = new URLSearchParams(window.location.search);
-  const host     = hostOverride || params.get('wsHost');
-  // Si la página se cargó por HTTPS usamos WSS (puerto 8001) para mantener
-  // el contexto seguro y habilitar el giroscopio en Android Chrome.
-  const isHttps  = window.location.protocol === 'https:';
+  const params = new URLSearchParams(window.location.search);
+  const host   = hostOverride || params.get('wsHost');
+
+  // En Capacitor (APK/IPA) el protocolo de la WebView no refleja el protocolo
+  // real del servidor — usamos ws:// plano siempre que estemos en Capacitor.
+  // En navegador web: si la página se cargó por HTTPS usamos WSS (puerto 8001).
+  const cap        = isCapacitor();
+  const isHttps    = !cap && window.location.protocol === 'https:';
   const defaultPort = isHttps ? '8001' : '8000';
-  const port     = params.get('wsPort') || defaultPort;
-  const scheme   = isHttps ? 'wss' : 'ws';
+  const port   = params.get('wsPort') || defaultPort;
+  const scheme = isHttps ? 'wss' : 'ws';
+
   if (host) return `${scheme}://${host}:${port}`;
   return `${scheme}://${window.location.hostname || '127.0.0.1'}:${port}`;
 }
@@ -368,7 +377,10 @@ function injectIpScreen(prefillIp = null) {
       err.textContent = 'IP no válida. Ej: 192.168.0.10'; return;
     }
     lsSet('kardpad_ip', ip);
-    const _isHttps = window.location.protocol === 'https:';
+    // En Capacitor (APK), la WebView usa https://localhost internamente,
+    // pero el servidor KartPAD sólo escucha ws:// (no wss://).
+    // Si estamos en APK siempre usamos ws:// puerto 8000.
+    const _isHttps = !isCapacitor() && window.location.protocol === 'https:';
     state.wsUrl = _isHttps ? `wss://${ip}:8001` : `ws://${ip}:8000`;
     err.textContent = 'Conectando…';
     err.style.color = '#06b6d4';
@@ -1063,11 +1075,13 @@ function getEffectiveAngle() {
 }
 
 function getMotionBlockedReason() {
-  // Capacitor WebView siempre tiene acceso a sensores
+  // Capacitor WebView siempre tiene acceso a sensores (tanto iOS como Android)
   if (isCapacitor()) return null;
 
   // Chrome en Android requiere HTTPS estricto para el giroscopio.
-  // iOS (WebKit) permite DeviceMotionEvent en IPs locales HTTP.
+  // PERO: si estamos en Capacitor APK, el protocolo es https://localhost,
+  // que NO es un contexto seguro externo — en ese caso ya se devuelve null arriba.
+  // Aquí solo aplica a Android Chrome en navegador web puro.
   const isAndroid = /Android/i.test(navigator.userAgent || '');
   if (isAndroid && !window.isSecureContext) return 'insecure-context';
 
