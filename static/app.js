@@ -334,7 +334,8 @@ function injectIpScreen(prefillIp = null) {
       </div>
 
       <div style="position:relative;">
-        <input id="ipInput" type="text" inputmode="decimal" placeholder="Ej: 192.168.0.10" value="${saved}"
+        <input id="ipInput" type="text" inputmode="url" placeholder="Ej: 192.168.0.10" value="${saved}"
+          autocorrect="off" autocapitalize="none" spellcheck="false"
           style="padding:14px 16px;border-radius:12px;border:1px solid rgba(6,182,212,.35);
                  background:rgba(6,182,212,.07);color:#d7fbff;font-size:18px;
                  font-family:'Share Tech Mono',monospace;text-align:center;
@@ -366,9 +367,16 @@ function injectIpScreen(prefillIp = null) {
   const qrb = document.getElementById('ipQrBtn');
   const err = document.getElementById('ipError');
 
+  // Reemplazar comas por puntos automáticamente (iOS español da coma en modo decimal)
+  inp.addEventListener('input', () => {
+    const v = inp.value; const pos = inp.selectionStart;
+    const fixed = v.replace(/,/g, '.');
+    if (fixed !== v) { inp.value = fixed; try { inp.setSelectionRange(pos, pos); } catch {} }
+  });
+
   const attempt = () => {
     if (_ipAutoTimer) { clearTimeout(_ipAutoTimer); _ipAutoTimer = null; }
-    const raw = inp.value.trim();
+    const raw = inp.value.replace(/,/g, '.').trim();
     if (!raw) { err.textContent = 'Escribe la IP del PC.'; return; }
     let ip = raw.replace(/^wss?:\/\//i,'').replace(/^https?:\/\//i,'').split('/')[0].split(':')[0].trim();
     const ipv4Re = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -377,9 +385,6 @@ function injectIpScreen(prefillIp = null) {
       err.textContent = 'IP no válida. Ej: 192.168.0.10'; return;
     }
     lsSet('kardpad_ip', ip);
-    // En Capacitor (APK), la WebView usa https://localhost internamente,
-    // pero el servidor KartPAD sólo escucha ws:// (no wss://).
-    // Si estamos en APK siempre usamos ws:// puerto 8000.
     const _isHttps = !isCapacitor() && window.location.protocol === 'https:';
     state.wsUrl = _isHttps ? `wss://${ip}:8001` : `ws://${ip}:8000`;
     err.textContent = 'Conectando…';
@@ -397,26 +402,33 @@ function injectIpScreen(prefillIp = null) {
       if (p) connectAs(p);
       else showSetup();
     };
-    const finish = (ok) => {
+    const showSslHint = () => {
+      // El cert autofirmado no ha sido aceptado para el puerto WSS.
+      // Mostramos un enlace para que el usuario lo acepte en Safari.
+      btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'CONECTAR';
+      err.style.color = '#f59e0b';
+      err.innerHTML =
+        `⚠️ Safari bloquea el certificado. ` +
+        `<a href="https://${ip}:8001" target="_blank" ` +
+        `style="color:#06b6d4;text-decoration:underline;">Abre este enlace</a>, ` +
+        `acepta el aviso y vuelve aquí para conectar.`;
+    };
+    const finish = (ok, sslError = false) => {
       if (done) return; done = true; clearTimeout(timer);
       if (ok) advanceToSetup();
+      else if (sslError || _isHttps) showSslHint();
       else {
         btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'CONECTAR';
         err.style.color = '#e74c3c';
         err.textContent = 'No se pudo conectar. ¿server.py corriendo? ¿Misma Wi-Fi?';
       }
     };
-    // Timeout reducido a 3s para feedback más rápido
     const timer = setTimeout(() => {
       try { probe.close(); } catch {}
-      if (!done) {
-        done = true; btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'CONECTAR';
-        err.style.color = '#e74c3c';
-        err.textContent = 'Sin respuesta. Verifica la IP y que server.py esté activo.';
-      }
-    }, 3000);
+      if (!done) finish(false, _isHttps);
+    }, 3500);
     probe.addEventListener('open',  () => { try { probe.close(); } catch {} finish(true); });
-    probe.addEventListener('error', () => finish(false));
+    probe.addEventListener('error', () => finish(false, _isHttps));
   };
 
   // Botón ✕ para borrar la IP guardada (solo aparece si había IP previa)
@@ -1435,11 +1447,38 @@ function scanQrFrame() {
   const video=document.getElementById('qrVideo'), canvas=document.getElementById('qrCanvas');
   if (!video||!canvas||!state.qrStream) return;
   if (video.readyState !== video.HAVE_ENOUGH_DATA) { scheduleQrScan(); return; }
+
+  // ── Capa 1: BarcodeDetector nativo (iOS 17+, Android Chrome 83+) ───────
+  if (typeof BarcodeDetector !== 'undefined' && !scanQrFrame._bd) {
+    try { scanQrFrame._bd = new BarcodeDetector({ formats: ['qr_code'] }); } catch {}
+  }
+  if (scanQrFrame._bd) {
+    scanQrFrame._bd.detect(video)
+      .then((codes) => {
+        if (codes.length > 0) handleQrDetected(codes[0].rawValue);
+        else scheduleQrScan();
+      })
+      .catch(() => {
+        scanQrFrame._bd = null; // BarcodeDetector falló, usar jsQR
+        _scanQrFrameJsQR(video, canvas);
+      });
+    return;
+  }
+
+  // ── Capa 2: jsQR (bundleado localmente) ───────────────────────────
+  _scanQrFrameJsQR(video, canvas);
+}
+
+function _scanQrFrameJsQR(video, canvas) {
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
   canvas.width=video.videoWidth; canvas.height=video.videoHeight;
   ctx.drawImage(video,0,0,canvas.width,canvas.height);
   let imageData; try { imageData=ctx.getImageData(0,0,canvas.width,canvas.height); } catch { scheduleQrScan(); return; }
-  const code=(typeof jsQR!=='undefined') ? jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'}) : null;
+  if (typeof jsQR==='undefined') {
+    setQrResult('jsQR no disponible. Usa la opción de imagen.', 'error');
+    return;
+  }
+  const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
   if (code?.data) handleQrDetected(code.data); else scheduleQrScan();
 }
 
@@ -1452,7 +1491,9 @@ function handleQrDetected(rawData) {
   setQrResult(`✓ Servidor: ${ip}`,'success');
   lsSet('kardpad_ip', ip);
   setTimeout(() => {
-    const _isHttps = window.location.protocol === 'https:';
+    // En APK (Capacitor), la WebView usa https://localhost internamente.
+    // Siempre conectar por ws:// al servidor KartPAD (no wss://).
+    const _isHttps = !isCapacitor() && window.location.protocol === 'https:';
     state.wsUrl = _isHttps ? `wss://${ip}:8001` : `ws://${ip}:8000`;
     updateServerAddress();
     closeQrScanner(); closeSettings();

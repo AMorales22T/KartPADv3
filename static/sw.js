@@ -6,12 +6,13 @@
 //  - Esto permite que la pantalla de IP se muestre incluso sin conexión.
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_NAME = 'kardpad-v2';
+const CACHE_NAME = 'kardpad-v3';
 const ASSETS = [
   './',
   './index.html',
   './main.css',
   './app.js',
+  './jsQR.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -46,7 +47,7 @@ self.addEventListener('fetch', (event) => {
   // Solo cachear requests GET del mismo origen
   if (event.request.method !== 'GET') return;
 
-  // No cachear requests a CDN externos (jsQR, Google Fonts)
+  // Solo cachear recursos del mismo origen (ignorar Google Fonts, etc.)
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
