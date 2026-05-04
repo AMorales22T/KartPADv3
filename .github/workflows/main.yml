@@ -177,7 +177,8 @@ jobs:
         run: |
           mv ./release-assets/app-release-unsigned.apk ./release-assets/KartPADv3.apk 2>/dev/null || true
 
-      - name: Create or update GitHub Release
+      - name: Create or update GitHub Release (EXE + APK)
+        id: gh_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
@@ -190,10 +191,10 @@ jobs:
             |---------|-----|
             | **KartPADv3.exe** | Windows |
             | **KartPADv3.apk** | Android |
-            | **KartPADv3.ipa** | iPhone o iPad |
+            | **KartPADv3.ipa** | iPhone o iPad (instalar con AltStore / Sideloadly) |
 
             Notas:
-            - El IPA generado por CI es unsigned.
+            - El IPA generado por CI es unsigned — necesitas AltStore o Sideloadly para instalarlo.
             - El PC y el movil deben estar en la misma Wi-Fi.
             - Dolphin debe usar DSUClient en `127.0.0.1:26760`.
           draft: false
@@ -201,5 +202,16 @@ jobs:
           files: |
             ./release-assets/KartPADv3.exe
             ./release-assets/KartPADv3.apk
-            ./release-assets/KartPADv3.ipa
           make_latest: true
+          fail_on_unmatched_files: true
+
+      - name: Upload IPA to Release
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          target_commitish: ${{ github.sha }}
+          files: |
+            ./release-assets/KartPADv3.ipa
+          fail_on_unmatched_files: false
+
