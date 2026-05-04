@@ -178,39 +178,38 @@ jobs:
           mv ./release-assets/app-release-unsigned.apk ./release-assets/KartPADv3.apk 2>/dev/null || true
 
 
-
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NOTES=$(cat <<'NOTES_EOF'
-## Descarga KartPADv3
+          # Escribir notas a fichero para evitar conflictos con el parser YAML
+          cat > /tmp/release_notes.md << 'EOF'
+          ## Descarga KartPADv3
 
-| Archivo | Uso |
-|---------|-----|
-| **KartPADv3.exe** | Windows |
-| **KartPADv3.apk** | Android |
-| **KartPADv3.ipa** | iPhone / iPad — instalar con AltStore o Sideloadly |
+          | Archivo | Uso |
+          |---------|-----|
+          | KartPADv3.exe | Windows |
+          | KartPADv3.apk | Android |
+          | KartPADv3.ipa | iPhone / iPad — instalar con AltStore o Sideloadly |
 
-> El IPA es unsigned (CI no tiene certificado de Apple).
-> El PC y el móvil deben estar en la misma red Wi-Fi.
-> Dolphin → DSUClient → `127.0.0.1:26760`
-NOTES_EOF
-          )
+          El IPA es unsigned (CI no tiene certificado de Apple).
+          El PC y el movil deben estar en la misma red Wi-Fi.
+          Dolphin: DSUClient en 127.0.0.1:26760
+          EOF
 
           REPO="$GITHUB_REPOSITORY"
 
-          # Crear el release si no existe; si ya existe, actualizarlo
+          # Crear si no existe; si ya existe, editar
           gh release create latest \
             --repo "$REPO" \
             --title "KartPADv3 - Latest" \
-            --notes "$NOTES" \
+            --notes-file /tmp/release_notes.md \
             --latest \
           2>/dev/null \
           || gh release edit latest \
             --repo "$REPO" \
             --title "KartPADv3 - Latest" \
-            --notes "$NOTES" \
+            --notes-file /tmp/release_notes.md \
             --latest
 
           # Subir / reemplazar EXE y APK
@@ -226,3 +225,4 @@ NOTES_EOF
             --repo "$REPO" \
             --clobber \
           || echo "::warning::IPA upload failed (archivo grande/timeout). EXE y APK disponibles."
+
