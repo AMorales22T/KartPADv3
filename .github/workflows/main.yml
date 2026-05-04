@@ -178,41 +178,51 @@ jobs:
           mv ./release-assets/app-release-unsigned.apk ./release-assets/KartPADv3.apk 2>/dev/null || true
 
 
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NOTES=$(cat <<'NOTES_EOF'
-          ## Descarga KartPADv3
+## Descarga KartPADv3
 
-          | Archivo | Uso |
-          |---------|-----|
-          | **KartPADv3.exe** | Windows |
-          | **KartPADv3.apk** | Android |
-          | **KartPADv3.ipa** | iPhone / iPad — instalar con AltStore o Sideloadly |
+| Archivo | Uso |
+|---------|-----|
+| **KartPADv3.exe** | Windows |
+| **KartPADv3.apk** | Android |
+| **KartPADv3.ipa** | iPhone / iPad — instalar con AltStore o Sideloadly |
 
-          > El IPA es unsigned (CI no tiene certificado de Apple).
-          > El PC y el móvil deben estar en la misma red Wi-Fi.
-          > Dolphin → DSUClient → `127.0.0.1:26760`
-          NOTES_EOF
+> El IPA es unsigned (CI no tiene certificado de Apple).
+> El PC y el móvil deben estar en la misma red Wi-Fi.
+> Dolphin → DSUClient → `127.0.0.1:26760`
+NOTES_EOF
           )
 
-          # Borrar el release anterior (el tag 'latest' se mantiene en git)
-          gh release delete latest --yes 2>/dev/null || true
+          REPO="$GITHUB_REPOSITORY"
 
-          # Crear el release en el tag existente con EXE + APK
+          # Crear el release si no existe; si ya existe, actualizarlo
           gh release create latest \
-            --repo "$GITHUB_REPOSITORY" \
+            --repo "$REPO" \
             --title "KartPADv3 - Latest" \
             --notes "$NOTES" \
             --latest \
+          2>/dev/null \
+          || gh release edit latest \
+            --repo "$REPO" \
+            --title "KartPADv3 - Latest" \
+            --notes "$NOTES" \
+            --latest
+
+          # Subir / reemplazar EXE y APK
+          gh release upload latest \
             ./release-assets/KartPADv3.exe \
-            ./release-assets/KartPADv3.apk
+            ./release-assets/KartPADv3.apk \
+            --repo "$REPO" \
+            --clobber
 
-          # Subir IPA por separado — archivo grande, permitir fallo
-          gh release upload latest ./release-assets/KartPADv3.ipa \
-            --repo "$GITHUB_REPOSITORY" \
+          # IPA por separado — archivo grande, permitir fallo sin romper el job
+          gh release upload latest \
+            ./release-assets/KartPADv3.ipa \
+            --repo "$REPO" \
             --clobber \
-            || echo "::warning::IPA upload failed (timeout en archivo grande). EXE y APK sí disponibles."
-
-
+          || echo "::warning::IPA upload failed (archivo grande/timeout). EXE y APK disponibles."
