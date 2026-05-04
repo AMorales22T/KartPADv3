@@ -107,13 +107,13 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: KartPADv3-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
 
   build-windows:
@@ -175,12 +175,13 @@ jobs:
 
       - name: Rename artifacts
         run: |
-          mv ./release-assets/app-debug.apk ./release-assets/KartPADv3.apk 2>/dev/null || true
+          mv ./release-assets/app-release-unsigned.apk ./release-assets/KartPADv3.apk 2>/dev/null || true
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
+          target_commitish: ${{ github.sha }}
           name: "KartPADv3 - Latest"
           body: |
             ## Descarga KartPADv3
