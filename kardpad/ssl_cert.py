@@ -110,7 +110,7 @@ def _generate_cert(local_ip: str) -> Tuple[Optional[Path], Optional[Path]]:
     ])
 
     # Validez: 10 años
-    now     = datetime.datetime.utcnow()
+    now     = datetime.datetime.now(datetime.timezone.utc)
     not_before = now - datetime.timedelta(seconds=30)
     not_after  = now + datetime.timedelta(days=3650)
 

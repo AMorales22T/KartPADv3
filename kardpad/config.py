@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "KartPADv3"
+VERSION  = "3.1.0"
 HTTP_PORT = 3000
 WS_PORT = 8000
 UDP_PORT = 26760
@@ -35,5 +36,6 @@ DSU_SERVER_ID = 0x4B504144  # "KPAD"
 DSU_MESSAGE_VERSION = 0x100000
 DSU_MESSAGE_PORTS = 0x100001
 DSU_MESSAGE_DATA = 0x100002
-DSU_CLIENT_TIMEOUT_SECONDS = 5.0
+DSU_CLIENT_TIMEOUT_SECONDS = 15.0  # era 5.0 — demasiado agresivo con carga de CPU
 DSU_BROADCAST_HZ = 60.0
+MOTION_DEBUG = False  # True para logs de telemetría de movimiento

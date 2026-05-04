@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import webbrowser
 
-from kardpad.config import APP_NAME, RESOURCE_DIR
+from kardpad.config import APP_NAME, RESOURCE_DIR, VERSION
 from kardpad.runtime import KardPadRuntime, RuntimeInfo
 
 try:
@@ -58,7 +58,7 @@ class DesktopLauncher:
         self.runtime = KardPadRuntime()
         self.info = self.runtime.start()
         self.root = tk.Tk()
-        self.root.title(APP_NAME)
+        self.root.title(f"{APP_NAME} v{VERSION}")
         self.root.geometry("1020x780")
         self.root.minsize(920, 700)
         self.root.configure(bg=BG_DARK)
@@ -142,7 +142,7 @@ class DesktopLauncher:
         footer.pack(fill="x", pady=(14, 0))
         tk.Label(
             footer,
-            text="KartPADv3 · Usa tu móvil como mando de Dolphin",
+            text=f"KartPADv3 v{VERSION} · Usa tu móvil como mando de Dolphin",
             bg=BG_DARK, fg=TEXT_DIM, font=FONT_SMALL,
         ).pack(side="left")
         tk.Label(

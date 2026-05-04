@@ -14,9 +14,9 @@ BUTTON_ALIASES = {
 
     "DRIFT": "R1",
     "ITEM": "UP",
-    "LOOKBACK": "Y",
+    "LOOKBACK": "X",  # Square (0x10 byte2) → Dolphin Buttons/A → Wiimote A → Mirar atrás
     "START": "OPTIONS",
-    "TRICK": "X",
+    "TRICK": "Y",    # Triangle (0x80 byte2) → Dolphin Shake/X → pirueta
     "A": "A",
     "B": "B",
     "X": "X",

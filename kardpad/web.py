@@ -11,7 +11,7 @@ import uuid
 
 import websockets
 
-from .config import HTTP_PORT, STATIC_DIR, WS_PORT
+from .config import HTTP_PORT, MOTION_DEBUG, STATIC_DIR, WS_PORT
 from .controller import ControllerHub
 
 # Puerto único HTTPS+WSS — la web y el WebSocket comparten el mismo puerto
@@ -197,19 +197,20 @@ class MobileGateway:
             gy = float(gyro.get("yaw", 0.0))
             gr = float(gyro.get("roll", 0.0))
 
-            # ── Debug: print motion once/sec ──────────────────────
-            global _motion_debug_ts, _motion_debug_count
-            _motion_debug_count += 1
-            now = time.monotonic()
-            if now - _motion_debug_ts >= 1.0:
-                _motion_debug_ts = now
-                print(
-                    f"[MOTION P{player_id}] "
-                    f"accel=({ax:+.3f}, {ay:+.3f}, {az:+.3f})  "
-                    f"gyro=({gp:+.1f}, {gy:+.1f}, {gr:+.1f})  "
-                    f"({_motion_debug_count} pkt/s)"
-                )
-                _motion_debug_count = 0
+            # ── Debug: print motion once/sec (sólo si MOTION_DEBUG=True en config) ──
+            if MOTION_DEBUG:
+                global _motion_debug_ts, _motion_debug_count
+                _motion_debug_count += 1
+                now = time.monotonic()
+                if now - _motion_debug_ts >= 1.0:
+                    _motion_debug_ts = now
+                    print(
+                        f"[MOTION P{player_id}] "
+                        f"accel=({ax:+.3f}, {ay:+.3f}, {az:+.3f})  "
+                        f"gyro=({gp:+.1f}, {gy:+.1f}, {gr:+.1f})  "
+                        f"({_motion_debug_count} pkt/s)"
+                    )
+                    _motion_debug_count = 0
 
             self._hub.update_motion(
                 player_id,

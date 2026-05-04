@@ -294,6 +294,29 @@ function cancelReconnect() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   MÓDULO: KEEPALIVE WEBSOCKET
+   ─────────────────────────────────────────────────────────────────────
+   Envía un ping cada 5s para detectar conexiones zombie y mantener
+   activos los timeouts de red en iOS cuando la pantalla está encendida.
+   El servidor ignora el tipo 'ping' — sólo sirve para mantener el socket vivo.
+   ═══════════════════════════════════════════════════════════════════════ */
+let _keepaliveId = null;
+
+function startKeepalive() {
+  stopKeepalive();
+  _keepaliveId = setInterval(() => {
+    if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+      stopKeepalive(); return;
+    }
+    safeSend({ type: 'ping' });
+  }, 5000);
+}
+
+function stopKeepalive() {
+  if (_keepaliveId) { clearInterval(_keepaliveId); _keepaliveId = null; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    MÓDULO: PANTALLA IP (Capacitor / WebView)
    ───────────────────────────────────────────────────────────────────────
    Mejoras v2:
@@ -596,6 +619,7 @@ function connectAs(player) {
       showController();
       setStatus(`P${msg.player} conectado 🏎️`);
       HapticEngine.double(30);
+      startKeepalive();
     }
     if (msg.type === 'haptic' && state.vibrationEnabled) {
       HapticEngine.trigger(msg.duration_ms || 80);
@@ -612,6 +636,7 @@ function connectAs(player) {
     clearTimeout(timer);
     if (state.socket !== socket) return;
     state.socket = null; releaseAllButtons();
+    stopKeepalive();
     const wasConnected = state.connectedPlayer !== null;
     state.connectedPlayer = null;
     if (wasConnected) {
@@ -624,6 +649,7 @@ function connectAs(player) {
 
 function disconnect(reason) {
   releaseAllButtons();
+  stopKeepalive();
   if (!state.socket) { state.connectedPlayer = null; return; }
   const s = state.socket; state.socket = null; state.connectedPlayer = null;
   try { s.close(1000, reason); } catch {}
@@ -945,7 +971,7 @@ function transformMotionToDsu(acc, rot, angle, steering) {
 function sendMotionPacket(acc, rot, steering, angle) {
   const now = Date.now();
   
-  if (now - state.motionSendTs < 14) return;
+  if (now - state.motionSendTs < 16) return;  // ~62 Hz, alineado con DSU_BROADCAST_HZ=60
   state.motionSendTs = now;
 
   const motion = transformMotionToDsu(acc, rot, angle, steering);
@@ -987,10 +1013,22 @@ function bindTouchSteering() {
     }
     state.touchSteeringPointerId = null;
     wrap.classList.remove('touch-steering');
-    state.touchSteeringValue = 0;
-    updateTiltIndicator(0);
-    sendNeutralMotion();
-    refreshTiltIdleCopy();
+    // Retorno suave al centro (EMA decay) en lugar de reset brusco
+    const animateReturn = () => {
+      if (state.touchSteeringPointerId !== null) return; // nuevo toque: abortar
+      state.touchSteeringValue *= 0.72;
+      if (Math.abs(state.touchSteeringValue) > 0.015) {
+        updateTiltIndicator(state.touchSteeringValue);
+        sendMotionPacket(null, null, state.touchSteeringValue, getEffectiveAngle());
+        requestAnimationFrame(animateReturn);
+      } else {
+        state.touchSteeringValue = 0;
+        updateTiltIndicator(0);
+        sendNeutralMotion();
+        refreshTiltIdleCopy();
+      }
+    };
+    requestAnimationFrame(animateReturn);
   };
 
   wrap.addEventListener('pointerdown', start, { passive: false });
