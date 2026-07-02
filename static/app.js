@@ -24,11 +24,18 @@ const TILT_SENSE_MAP = {
 const DPAD_BUTTONS = new Set(['UP', 'DOWN', 'LEFT', 'RIGHT']);
 
 // EMA: alpha = peso del valor nuevo (mayor → más rápido pero menos suave)
-const TILT_SMOOTH_ALPHA = 0.6; // Aumentado para eliminar el "input lag" en volantazos
+// Reducido de 0.6 a 0.35: la fusión giroscopio+acelerómetro ya suaviza la señal,
+// un EMA posterior muy alto reintroduciría el lag. Si se siente lento, bajar más.
+const TILT_SMOOTH_ALPHA = 0.35;
+
+// Filtro complementario: peso del giroscopio vs acelerómetro.
+// Valores altos (~0.96) dan respuesta rápida del gyro con corrección lenta del accel.
+const FUSION_ALPHA = 0.96;
 
 /* ─── Detección de shake ──────────────────────────────────────────── */
 const SHAKE_THRESHOLD   = 6.5;  // bajado significativamente para detectar mejor sacudidas rápidas
 const SHAKE_DEBOUNCE_MS = 300;  // ms mínimo entre shakes
+const SHAKE_LINEAR_GRACE_FRAMES = 10; // frames a esperar antes de fijar modo gravity-based
 
 // Magnitud del spike de aceleración enviado al Wiimote virtual (en g)
 const SHAKE_SPIKE_G = 4.5;
@@ -174,6 +181,15 @@ const state = {
   accelLast:          { x: 0, y: 0, z: 0 },
   trickPulseTimers:   new Map(),
   vibrationEnabled:  lsGet('kardpad_vibration') !== 'false',
+
+  // Fusión de sensores (giroscopio + acelerómetro)
+  fusionAngle:       0,      // ángulo fusionado en unidades rawRoll [-1,1]
+  fusionLastTs:      0,      // timestamp del último evento devicemotion (ms)
+  fusionInitialized: false,  // se re-inicializa tras calibración/rotación
+
+  // Detección de shake: caché del modo de aceleración
+  shakeHasLinear:      null,  // null = no determinado, true/false = cacheado
+  shakeLinearNullRuns: 0,     // frames consecutivos sin ev.acceleration
 
   qrStream:    null,
   qrAnimFrame: null,
@@ -694,6 +710,7 @@ function bindController() {
       if (state.tiltEnabled) {
         state.tiltNeutral  = null;
         state.tiltSmoothed = 0;
+        state.fusionInitialized = false;
         setTiltCopy('Orientación cambiada. Pulsa "Centrar".');
         HapticEngine.trigger(18);
       }
@@ -962,9 +979,16 @@ function transformMotionToDsu(acc, rot, angle, steering) {
   const accelX  = Math.sin(tiltRad);          // lateral tilt
   const accelZ  = Math.cos(tiltRad);          // vertical component
 
+  // Giroscopio real del sensor (deg/s) — el protocolo DSU/cemuhook espera deg/s.
+  // Mapeo de ejes (convención DS4→Dolphin): pitch=beta(X), yaw=alpha(Z), roll=gamma(Y).
+  // Cuando rot es null (touch steering), los ?? 0 producen zeros. Correcto.
   return {
     accel: { x: accelX, y: activeYSpike, z: accelZ }, // Inyectamos Y aquí (normalmente 0.0)
-    gyro:  { pitch: 0.0, yaw: 0.0, roll: steering * 50.0 },
+    gyro:  {
+      pitch: rot?.beta  ?? 0,   // deg/s — rotación en X
+      yaw:   rot?.alpha ?? 0,   // deg/s — rotación en Z
+      roll:  rot?.gamma ?? 0,   // deg/s — rotación en Y
+    },
   };
 }
 
@@ -1073,6 +1097,7 @@ async function toggleTiltMode() {
 
 function disableTilt() {
   state.tiltEnabled = false; state.tiltNeutral = null; state.tiltSmoothed = 0;
+  state.fusionInitialized = false;
   state.tiltLastHapticSide = null;
   updateTiltIndicator(0);
   updateTiltUi();
@@ -1097,6 +1122,7 @@ function calibrateTilt() {
   if (state.lastTiltRaw == null) { setTiltCopy('Sujeta el móvil horizontal y pulsa "Centrar".'); return; }
   state.tiltNeutral  = state.lastTiltRaw;
   state.tiltSmoothed = 0;
+  state.fusionInitialized = false;
   state.tiltLastHapticSide = null;
   updateTiltIndicator(0);
   HapticEngine.double(30);
@@ -1121,19 +1147,19 @@ function getEffectiveAngle() {
     // iOS con pantalla bloqueada/no reportada → asumimos landscape derecha
     return 90;
   }
-  return reported;
+  // Normalizar a la potencia de 90 más cercana (0, 90, 180, 270)
+  // para evitar valores intermedios durante transiciones de rotación
+  const mod = ((reported % 360) + 360) % 360;
+  return Math.round(mod / 90) * 90 % 360;
 }
 
 function getMotionBlockedReason() {
   // Capacitor WebView siempre tiene acceso a sensores (tanto iOS como Android)
   if (isCapacitor()) return null;
 
-  // Chrome en Android requiere HTTPS estricto para el giroscopio.
-  // PERO: si estamos en Capacitor APK, el protocolo es https://localhost,
-  // que NO es un contexto seguro externo — en ese caso ya se devuelve null arriba.
-  // Aquí solo aplica a Android Chrome en navegador web puro.
-  const isAndroid = /Android/i.test(navigator.userAgent || '');
-  if (isAndroid && !window.isSecureContext) return 'insecure-context';
+  // Tanto Android Chrome como iOS Safari requieren HTTPS para DeviceMotionEvent.
+  // Si estamos en Capacitor APK, ya se devuelve null arriba (WebView tiene acceso).
+  if (!window.isSecureContext) return 'insecure-context';
 
   if (typeof DeviceMotionEvent === 'undefined') return 'unsupported';
   return null;
@@ -1152,7 +1178,7 @@ function getMotionBlockedCopy() {
   if (reason === 'insecure-context') {
     const ip = _getServerIp();
     return (
-      `Android Chrome requiere HTTPS para el giroscopio. ` +
+      `Este navegador requiere HTTPS para el giroscopio. ` +
       `Abre https://${ip}:3443 en Chrome, acepta la advertencia del certificado ` +
       `(toca "Avanzado" → "Continuar") y vuelve a activar el Volante.`
     );
@@ -1182,28 +1208,63 @@ function handleDeviceMotion(ev) {
   // Usamos getEffectiveAngle() que corrige el bug de iOS reportando 0 en landscape
   const angle = getEffectiveAngle();
   let sx = 0, sy = 0;
-  if (angle === 90 || angle === -270) {
+  if (angle === 90) {
     // Landscape «derecha»: el teléfono girado 90° en sentido horario
     sx = (acc.y ?? 0);  sy = (acc.x ?? 0);
-  } else if (angle === 270 || angle === -90) {
+  } else if (angle === 270) {
     // Landscape «izquierda»: girado 90° en antihorario
     sx = -(acc.y ?? 0); sy = -(acc.x ?? 0);
-  } else if (angle === 180 || angle === -180) {
+  } else if (angle === 180) {
     // Portrait invertido
     sx = -(acc.x ?? 0); sy = -(acc.y ?? 0);
   } else {
-    // Portrait normal
+    // Portrait normal (0)
     sx = (acc.x ?? 0);  sy = (acc.y ?? 0);
   }
-  let rawAngle = Math.atan2(sx, Math.abs(sy));
+  const rawAngle = Math.atan2(sx, Math.abs(sy));
   // Limitamos para que ~60 grados (1.047 rad) ya den un giro completo (-1 a 1)
-  let rawRoll = clamp(rawAngle / 1.047, -1, 1);
-  // atan2(sx, |sy|) already produces correct sign — no manual override needed
-  state.lastTiltRaw = rawRoll;
+  const rawRoll = clamp(rawAngle / 1.047, -1, 1);
+
+  // ── Fusión de sensores: giroscopio (rápido) + acelerómetro (anti-deriva) ──
+  const now = Date.now();
+  // Delta medido como fuente principal; ev.interval es nominal y puede no
+  // reflejar el tiempo real si el hilo se atasca.
+  let dt = state.fusionLastTs > 0
+    ? (now - state.fusionLastTs) / 1000
+    : (ev.interval && ev.interval > 0 ? ev.interval / 1000 : 0.016);
+  dt = Math.max(0.004, Math.min(dt, 0.1)); // clamp a [4ms, 100ms]
+
+  // Extraer la tasa de giro lateral según orientación de pantalla (deg/s)
+  let gyroRate = 0;
+  if (angle === 90) {
+    gyroRate = rot.gamma ?? 0;
+  } else if (angle === 270) {
+    gyroRate = -(rot.gamma ?? 0);
+  } else if (angle === 180) {
+    gyroRate = -(rot.beta ?? 0);
+  } else {
+    gyroRate = rot.beta ?? 0;
+  }
+
+  if (!state.fusionInitialized) {
+    state.fusionAngle = rawRoll;  // bootstrap con acelerómetro
+    state.fusionInitialized = true;
+  } else {
+    // gyroRate en deg/s. rawRoll tiene escala [-1,1] donde 1.0 = 60°.
+    // Convertimos: deg/s → rawRoll-units/s = deg/s / 60
+    const gyroRollRate = gyroRate / 60.0;
+    state.fusionAngle = FUSION_ALPHA * (state.fusionAngle + gyroRollRate * dt)
+                      + (1 - FUSION_ALPHA) * rawRoll;
+    state.fusionAngle = clamp(state.fusionAngle, -1, 1);
+  }
+  state.fusionLastTs = now;
+
+  // Usar ángulo fusionado en lugar del acelerómetro puro
+  state.lastTiltRaw = state.fusionAngle;
 
   if (state.tiltEnabled) {
-    const raw = state.tiltNeutral != null ? rawRoll - state.tiltNeutral : rawRoll;
-    // EMA correcta: alpha = peso del nuevo valor
+    const raw = state.tiltNeutral != null ? state.fusionAngle - state.tiltNeutral : state.fusionAngle;
+    // EMA ligera post-fusión para extra-smoothing
     state.tiltSmoothed = TILT_SMOOTH_ALPHA * raw + (1 - TILT_SMOOTH_ALPHA) * state.tiltSmoothed;
 
     const sens     = TILT_SENSE_MAP[state.tiltSensLevel] || TILT_SENSE_MAP[3];
@@ -1223,8 +1284,23 @@ function handleDeviceMotion(ev) {
   // como volante cambia la distribución de los 9.8m/s² entre los ejes X/Y,
   // generando un falso "tirón" masivo (jerk > 13) que dispara trucos por error.
   const lin = ev.acceleration || {};
-  const hasLinear = (lin.x != null);
-  const source = hasLinear ? lin : acc;
+
+  // Cachear el modo (lineal vs gravedad) una sola vez con grace period
+  if (state.shakeHasLinear === null) {
+    if (lin.x != null) {
+      state.shakeHasLinear = true;
+      state.shakeLinearNullRuns = 0;
+    } else {
+      state.shakeLinearNullRuns++;
+      if (state.shakeLinearNullRuns >= SHAKE_LINEAR_GRACE_FRAMES) {
+        state.shakeHasLinear = false;
+      }
+    }
+  }
+
+  // Mientras no decidido → umbral conservador (gravity-based)
+  const useLinear = state.shakeHasLinear === true;
+  const source = useLinear ? lin : acc;
   
   const ax = source.x ?? 0, ay = source.y ?? 0, az = source.z ?? 0;
   const dx = ax - state.accelLast.x;
@@ -1236,7 +1312,7 @@ function handleDeviceMotion(ev) {
   // Si no hay aceleración lineal y dependemos de la gravedad, necesitamos 
   // un umbral mucho más alto para no disparar al girar (ej: 15).
   // Si tenemos lineal pura, 6.5 es perfecto.
-  const effectiveThreshold = hasLinear ? SHAKE_THRESHOLD : 15.0;
+  const effectiveThreshold = useLinear ? SHAKE_THRESHOLD : 15.0;
 
   if (jerk > effectiveThreshold) {
     const now = Date.now();
